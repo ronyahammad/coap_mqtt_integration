@@ -1,0 +1,54 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto
+    ports:
+      - "1883:1883"      
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    restart: always
+    networks:
+      - mqtt_network
+
+  coap-server:
+    build:
+      context: .
+    container_name: coap-server
+    command: ["python", "coap_server.py"]
+    ports:
+      - "5683:5683/udp"    
+    networks:
+      - mqtt_network
+    restart: always
+
+  coap-mqtt-bridge:
+    build:
+      context: .
+    container_name: coap-mqtt-bridge
+    command: ["python", "coap_mqtt_bridge.py"]
+    depends_on:
+      - mosquitto
+      - coap-server
+    networks:
+      - mqtt_network
+    restart: always
+
+  mqtt-subscriber:
+    build:
+      context: .
+    container_name: mqtt-subscriber
+    command: ["python", "mqtt_subscriber.py"]
+    depends_on:
+      - mosquitto
+    networks:
+      - mqtt_network
+    restart: always
+
+networks:
+  mqtt_network:
+    driver: bridge
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
