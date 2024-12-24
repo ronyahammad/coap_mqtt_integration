@@ -28,7 +28,7 @@ async def main():
     logging.basicConfig(level=logging.INFO)
     root = resource.Site()
     root.add_resource(['sensor'], SensorDataResource())
-    await aiocoap.Context.create_server_context(root, bind=('127.0.0.1', 5683))
+    await aiocoap.Context.create_server_context(root, bind=('0.0.0.0', 5683))
     await asyncio.get_running_loop().create_future()
 
 if __name__ == "__main__":
