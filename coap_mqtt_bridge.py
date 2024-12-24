@@ -14,15 +14,19 @@ mqttc.connect(mqttBroker)
 async def fetch_coap_data():
 
     protocol = await Context.create_client_context()
-    request = Message(code=GET, uri="coap://127.0.0.1:5683/sensor")
+    request = Message(code=GET, uri="coap://coap-server:5683/sensor")
 
-    try:
-        response = await protocol.request(request).response
-        sensor_data = response.payload.decode('utf-8')
-        mqttc.publish(mqtt_topic, sensor_data)
-        print(f"Published to MQTT: {sensor_data}")
-    except Exception as e:
-        print(f"Failed to fetch or publish data: {e}")
+    for _ in range(5): 
+        try:
+            response = await protocol.request(request).response
+            sensor_data = response.payload.decode('utf-8')
+            mqttc.publish(mqtt_topic, sensor_data)
+            print(f"Published to MQTT: {sensor_data}")
+            return
+        except Exception as e:
+            print(f"Retrying to connect to CoAP server... {e}")
+            await asyncio.sleep(2) 
+    print("Failed to connect to CoAP server after retries.")
 
 
 async def main():
