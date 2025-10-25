@@ -1,0 +1,168 @@
+services:
+  mosquitto:
+    image: eclipse-mosquitto:latest
+    container_name: mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    restart: always
+    networks: [mqtt_network]
+
+  coap-server-baseline:
+    build: { context: . }
+    container_name: coap-server-baseline
+    command: ["python", "coap_server.py"]
+    ports:
+      - "5683:5683/udp"
+    environment:
+      RUN_MODE: no_rl
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      CONTROL_TOPIC: UALG2025_THESIS_IOT_SENSORS/control_baseline
+      ANOM_THRESHOLD: "2.5"
+      A_SCALE: "1.0"
+    networks: [mqtt_network]
+    restart: always
+
+  coap-mqtt-bridge-baseline:
+    build: { context: . }
+    container_name: coap-mqtt-bridge-baseline
+    command: ["python", "coap_mqtt_bridge.py"]
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      COAP_URL: coap://coap-server-baseline:5683/sensor
+      TOPIC_ROOT: UALG2025_THESIS_IOT_SENSORS
+      DEFAULT_INTERVAL: "5"
+    depends_on: [mosquitto, coap-server-baseline]
+    networks: [mqtt_network]
+    restart: always
+
+  coap-server-ddqn:
+    build: { context: . }
+    container_name: coap-server-ddqn
+    command: ["python", "coap_server.py"]
+    environment:
+      RUN_MODE: ddqn
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      CONTROL_TOPIC: UALG2025_THESIS_IOT_SENSORS/control
+      ANOM_THRESHOLD: "2.5"
+      A_SCALE: "1.0"
+    networks: [mqtt_network]
+    restart: always
+
+  coap-mqtt-effective-bridge:
+    build: { context: . }
+    container_name: coap-mqtt-effective-bridge
+    command: ["python", "coap_mqtt_effective_bridge.py"]
+    depends_on: [mosquitto, coap-server-ddqn]
+    environment:
+      MQTT_TOPIC_EFFECTIVE: UALG2025_THESIS_IOT_SENSORS/ddqn_effective
+      COAP_URL: coap://coap-server-ddqn:5683/sensor
+      ROLLING_WINDOW: "30"
+      MAX_BATCH: "10"
+    networks: [mqtt_network]
+    restart: always
+
+  coap-mqtt-bridge-ddqn:
+    build: { context: . }
+    container_name: coap-mqtt-bridge-ddqn
+    command: ["python", "coap_mqtt_bridge.py"]
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      COAP_URL: coap://coap-server-ddqn:5683/sensor
+      TOPIC_ROOT: UALG2025_THESIS_IOT_SENSORS
+      DEFAULT_INTERVAL: "5"
+    depends_on: [mosquitto, coap-server-ddqn]
+    networks: [mqtt_network]
+    restart: always
+
+  mqtt-subscriber:
+    build: { context: . }
+    container_name: mqtt-subscriber
+    command: ["python", "mqtt_subscriber.py"]
+    depends_on: [mosquitto]
+    networks: [mqtt_network]
+    restart: always
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: influxdb
+    ports:
+      - "8086:8086"
+    volumes:
+      - influxdb_data:/var/lib/influxdb2
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_INIT_USERNAME}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_INIT_PASSWORD}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_INIT_ORG}
+      DOCKER_INFLUXDB_INIT_BUCKET: iot_data
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_INIT_ADMIN_TOKEN}
+    networks: [mqtt_network]
+    restart: always
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD}
+    depends_on: [influxdb]
+    networks: [mqtt_network]
+    restart: always
+
+  mqtt-influx-bridge:
+    build: { context: . }
+    container_name: mqtt-influx-bridge
+    command: ["python", "mqtt_influx_bridge.py"]
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      MQTT_TOPIC: UALG2025_THESIS_IOT_SENSORS/#
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: ${INFLUXDB_INIT_ADMIN_TOKEN}
+      INFLUX_ORG: ${INFLUXDB_INIT_ORG}
+      INFLUX_BUCKET: iot_data
+    depends_on: [mosquitto, influxdb]
+    networks: [mqtt_network]
+    restart: unless-stopped
+
+  ddqn_policy_agent:
+    build: { context: . }
+    container_name: ddqn_policy_agent
+    command: ["python", "ddqn_policy_agent.py"]
+    environment:
+      MQTT_BROKER: mosquitto
+      MQTT_PORT: 1883
+      TELEMETRY_TOPIC: UALG2025_THESIS_IOT_SENSORS/ddqn
+      CONTROL_TOPIC: UALG2025_THESIS_IOT_SENSORS/control
+      SUMMARY_TOPIC: UALG2025_THESIS_IOT_SENSORS/ddqn_episode_summary
+      BATCH_SIZE: "128"
+      SUMMARY_EVERY_STEPS: "300"
+      REPLAY_CAP: "20000"
+      WARMUP_STEPS: "4000"
+      EPS_MIN: "0.05"
+      EPS_DECAY: "0.99997"
+    depends_on: [mosquitto, coap-mqtt-bridge-ddqn]
+    networks: [mqtt_network]
+    restart: unless-stopped
+
+networks:
+  mqtt_network:
+    driver: bridge
+
+volumes:
+  mosquitto_data:
+  mosquitto_log:
+  influxdb_data:
+  grafana_data:
