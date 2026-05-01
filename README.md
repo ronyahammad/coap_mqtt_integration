@@ -1,4 +1,8 @@
-# Intelligent & Efficient IoT Communication System
+# Publication title : Learning-Based Adaptive Transmission Control in Hybrid CoAP-MQTT IoT Systems
+
+Accepted in IEEE ISCC 2026 conference
+---
+# Thesis Title : Optimization of Data Transmission in IoT Applications using CoAP and MQTT protocols
 
 CoAP ⇄ MQTT ⇄ InfluxDB ⇄ Grafana + DDQN Policy Agent
 
